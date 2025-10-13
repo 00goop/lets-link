@@ -1,0 +1,193 @@
+import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+import { User, Friend, Notification } from "@/entities/all";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { UserPlus, CheckCircle, AlertCircle } from "lucide-react";
+
+export default function AddFriend() {
+  const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [targetUser, setTargetUser] = useState(null);
+  const [status, setStatus] = useState('loading');
+  const [loading, setLoading] = useState(false);
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetUserId = urlParams.get("user");
+
+  const loadUsers = useCallback(async () => {
+    try {
+      const user = await User.me();
+      setCurrentUser(user);
+
+      if (!targetUserId) {
+        setStatus('error');
+        return;
+      }
+
+      const allUsers = await User.list();
+      const target = allUsers.find(u => u.id === targetUserId);
+      
+      if (!target) {
+        setStatus('error');
+        return;
+      }
+
+      if (target.id === user.id) {
+        setStatus('self');
+        return;
+      }
+
+      setTargetUser(target);
+
+      const allFriendships = await Friend.list();
+      const existingFriendship = allFriendships.find(f => 
+        (f.requester_id === user.id && f.recipient_id === target.id) ||
+        (f.requester_id === target.id && f.recipient_id === user.id)
+      );
+
+      if (existingFriendship) {
+        setStatus('already_friends');
+      } else {
+        setStatus('ready');
+      }
+
+    } catch (error) {
+      console.error("Error loading users:", error);
+      setStatus('error');
+    }
+  }, [targetUserId]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const sendFriendRequest = async () => {
+    if (!targetUser || !currentUser) return;
+    
+    setLoading(true);
+    try {
+      await Friend.create({
+        requester_id: currentUser.id,
+        recipient_id: targetUser.id,
+        status: "pending"
+      });
+
+      await Notification.create({
+        user_id: targetUser.id,
+        type: "friend_request",
+        title: "New Friend Request",
+        message: `${currentUser.full_name} sent you a friend request`,
+        related_id: currentUser.id
+      });
+
+      setStatus('success');
+    } catch (error) {
+      console.error("Error sending friend request:", error);
+      setStatus('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const UserAvatar = ({ user, size = "20" }) => (
+    user?.profile_picture_url ? (
+      <img
+        src={user.profile_picture_url}
+        alt={user.full_name}
+        className={`w-${size} h-${size} rounded-full object-cover`}
+      />
+    ) : (
+      <div className={`w-${size} h-${size} bg-gray-900 rounded-full flex items-center justify-center text-white font-semibold text-2xl`}>
+        {user?.full_name?.[0]?.toUpperCase() || 'U'}
+      </div>
+    )
+  );
+
+  if (status === 'loading') {
+    return (
+      <div className="max-w-md mx-auto p-6 space-y-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-3/4"></div>
+          <div className="h-32 bg-gray-200 rounded-lg"></div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-md mx-auto p-6 space-y-8">
+      <div className="text-center">
+        <h1 className="text-2xl font-bold text-gray-900">Add Friend</h1>
+        <p className="text-gray-500 mt-1">Connect with someone new!</p>
+      </div>
+
+      {status === 'error' && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Something went wrong. The user might not exist or the link is invalid.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {status === 'self' && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            You can't send a friend request to yourself! 😄
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {status === 'already_friends' && targetUser && (
+        <Card className="text-center border-gray-200">
+          <CardContent className="pt-6">
+            <UserAvatar user={targetUser} />
+            <h2 className="text-xl font-semibold mt-4">{targetUser.full_name}</h2>
+            <Alert className="mt-4">
+              <CheckCircle className="h-4 w-4" />
+              <AlertDescription>
+                You're already connected with this person or have a pending request.
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+      )}
+
+      {status === 'ready' && targetUser && (
+        <Card className="text-center border-gray-200">
+          <CardContent className="pt-6 space-y-6">
+            <UserAvatar user={targetUser} />
+            <div>
+              <h2 className="text-xl font-semibold">{targetUser.full_name}</h2>
+              <p className="text-gray-500">{targetUser.email}</p>
+              {targetUser.bio && (
+                <p className="text-sm text-gray-600 mt-2">{targetUser.bio}</p>
+              )}
+            </div>
+            
+            <Button onClick={sendFriendRequest} disabled={loading} className="w-full bg-gray-900 hover:bg-gray-800 gap-2">
+              <UserPlus className="w-4 h-4" />
+              {loading ? "Sending Request..." : "Send Friend Request"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {status === 'success' && targetUser && (
+        <Card className="text-center border-gray-200">
+          <CardContent className="pt-6">
+            <CheckCircle className="w-16 h-16 text-green-600 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-green-700">Request Sent!</h2>
+            <p className="text-gray-600 mt-2">
+              Your friend request has been sent to {targetUser.full_name}. 
+              They'll receive a notification and can accept it from their notifications page.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="flex justify-center">
