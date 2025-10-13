@@ -1,66 +1,39 @@
-{
-  "name": "PartyMember",
-  "type": "object",
-  "properties": {
-    "party_id": {
-      "type": "string",
-      "description": "ID of the party"
+const Friend = {
+  name: 'Friend',
+  type: 'object',
+  properties: {
+    requester_id: {
+      type: 'string',
+      description: 'ID of the user who sent the friend request',
     },
-    "user_id": {
-      "type": "string",
-      "description": "ID of the user"
+    recipient_id: {
+      type: 'string',
+      description: 'ID of the user who received the friend request',
     },
-    "status": {
-      "type": "string",
-      "enum": [
-        "pending",
-        "confirmed",
-        "declined"
-      ],
-      "default": "confirmed",
-      "description": "Member status in the party"
+    status: {
+      type: 'string',
+      enum: ['pending', 'accepted', 'declined', 'blocked'],
+      default: 'pending',
+      description: 'Current status of the friend request',
     },
-    "location_lat": {
-      "type": "number",
-      "description": "User's latitude for location calculations"
-    },
-    "location_lng": {
-      "type": "number",
-      "description": "User's longitude for location calculations"
-    },
-    "location_name": {
-      "type": "string",
-      "description": "User's location description"
-    }
   },
-  "required": [
-    "party_id",
-    "user_id"
-  ],
-  "rls": {
-    "read": {
-      "$or": [
-        {
-          "user_id": "{{user.id}}"
-        },
-        {
-          "user_condition": {
-            "role": "admin"
-          }
-        }
-      ]
+  required: ['requester_id', 'recipient_id'],
+  rls: {
+    read: {
+      $or: [
+        { requester_id: '{{user.id}}' },
+        { recipient_id: '{{user.id}}' },
+        { user_condition: { role: 'admin' } },
+      ],
     },
-    "write": {
-      "$or": [
-        {
-          "user_id": "{{user.id}}"
-        },
-        {
-          "user_condition": {
-            "role": "admin"
-          }
-        }
-      ]
-    }
-  }
-}
+    write: {
+      $or: [
+        { requester_id: '{{user.id}}' },
+        { recipient_id: '{{user.id}}' },
+        { user_condition: { role: 'admin' } },
+      ],
+    },
+  },
+};
+
+export default Friend;

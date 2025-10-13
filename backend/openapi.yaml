@@ -1,0 +1,830 @@
+openapi: 3.1.0
+info:
+  title: Let's Link API
+  version: 1.0.0
+  description: REST API for the Let's Link social planning platform.
+servers:
+  - url: http://localhost:4000
+    description: Local development
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+        username:
+          type: string
+        bio:
+          type: string
+        location:
+          type: string
+        interests:
+          type: string
+        phone:
+          type: string
+        profile_picture_url:
+          type: string
+          format: uri
+        role:
+          type: string
+          enum: [user, admin]
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, email, full_name, role, created_date, updated_date]
+    Party:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [recreational, dining, family_vacation, entertainment, shopping, educational]
+        host_id:
+          type: string
+        join_code:
+          type: string
+        max_size:
+          type: integer
+        status:
+          type: string
+          enum: [planning, confirmed, completed, cancelled]
+        scheduled_date:
+          type: string
+          format: date-time
+        location_name:
+          type: string
+        location_address:
+          type: string
+        member_ids:
+          type: array
+          items:
+            type: string
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, title, type, host_id, join_code]
+    PartyMember:
+      type: object
+      properties:
+        id:
+          type: string
+        party_id:
+          type: string
+        user_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, confirmed, declined]
+        location_lat:
+          type: number
+        location_lng:
+          type: number
+        location_name:
+          type: string
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, party_id, user_id]
+    Friend:
+      type: object
+      properties:
+        id:
+          type: string
+        requester_id:
+          type: string
+        recipient_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, declined, blocked]
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, requester_id, recipient_id]
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        type:
+          type: string
+          enum: [friend_request, party_invite, party_update, photo_tagged]
+        title:
+          type: string
+        message:
+          type: string
+        read:
+          type: boolean
+        related_id:
+          type: string
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, user_id, type, title, message]
+    Photo:
+      type: object
+      properties:
+        id:
+          type: string
+        party_id:
+          type: string
+        uploader_id:
+          type: string
+        file_url:
+          type: string
+          format: uri
+        caption:
+          type: string
+        likes:
+          type: array
+          items:
+            type: string
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, party_id, uploader_id, file_url]
+    Poll:
+      type: object
+      properties:
+        id:
+          type: string
+        party_id:
+          type: string
+        created_by:
+          type: string
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [open, closed]
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, party_id, created_by, question, options]
+    Vote:
+      type: object
+      properties:
+        id:
+          type: string
+        poll_id:
+          type: string
+        user_id:
+          type: string
+        selected_option:
+          type: string
+        created_date:
+          type: string
+          format: date-time
+        updated_date:
+          type: string
+          format: date-time
+      required: [id, poll_id, user_id, selected_option]
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, full_name]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                full_name:
+                  type: string
+                username:
+                  type: string
+      responses:
+        '201':
+          description: Registration succeeded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '409':
+          description: Email or username already used
+  /auth/login:
+    post:
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Authentication token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+  /users:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List users
+      parameters:
+        - in: query
+          name: sort
+          schema:
+            type: string
+          description: Sort expression (e.g. -created_date)
+      responses:
+        '200':
+          description: Array of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+  /users/me:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get the current user
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update the current user profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /users/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a user by id
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a user by id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a user
+      responses:
+        '204':
+          description: User removed
+  /parties:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List parties available to the caller
+      parameters:
+        - in: query
+          name: sort
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of parties
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Party'
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a new party
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Party'
+      responses:
+        '201':
+          description: Party created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Party'
+  /parties/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a party
+      responses:
+        '200':
+          description: Party detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Party'
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a party
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated party
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Party'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a party
+      responses:
+        '204':
+          description: Party removed
+  /party-members:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List party members visible to the caller
+      responses:
+        '200':
+          description: Members array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PartyMember'
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a party member entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartyMember'
+      responses:
+        '201':
+          description: Party member created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyMember'
+  /party-members/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a party member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PartyMember'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a party member
+      responses:
+        '204':
+          description: Member removed
+  /friends:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List friendships for the caller
+      responses:
+        '200':
+          description: List of friendships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Friend'
+    post:
+      security:
+        - bearerAuth: []
+      summary: Send a friend request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Friend'
+      responses:
+        '201':
+          description: Friendship created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Friend'
+  /friends/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update friendship status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated friendship
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Friend'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Remove a friendship
+      responses:
+        '204':
+          description: Friendship deleted
+  /notifications:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List notifications for the caller
+      responses:
+        '200':
+          description: Notifications array
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Notification'
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Notification'
+      responses:
+        '201':
+          description: Notification created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+  /notifications/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a notification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated notification
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a notification
+      responses:
+        '204':
+          description: Notification deleted
+  /photos:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List photos available to the caller
+      responses:
+        '200':
+          description: List of photos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Photo'
+    post:
+      security:
+        - bearerAuth: []
+      summary: Upload metadata for a photo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Photo'
+      responses:
+        '201':
+          description: Photo created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Photo'
+  /photos/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a photo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated photo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Photo'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a photo
+      responses:
+        '204':
+          description: Photo deleted
+  /polls:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List polls for parties
+      responses:
+        '200':
+          description: Poll list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Poll'
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a poll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Poll'
+      responses:
+        '201':
+          description: Poll created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+  /polls/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a poll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated poll
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Poll'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a poll
+      responses:
+        '204':
+          description: Poll deleted
+  /votes:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List votes accessible to the caller
+      responses:
+        '200':
+          description: Vote list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Vote'
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a vote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Vote'
+      responses:
+        '201':
+          description: Vote created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vote'
+  /votes/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema:
+          type: string
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Update a vote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Updated vote
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vote'
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a vote
+      responses:
+        '204':
+          description: Vote deleted
