@@ -1,0 +1,12 @@
+node_modules/
+.vite/
+.DS_Store
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+lets-link-app/node_modules/
+lets-link-app/dist/
+dist/
+.vscode/

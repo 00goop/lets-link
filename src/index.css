@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --primary-start: #8053ff;
+    --primary-end: #ff6fb1;
+    --accent-blue: #38bdf8;
+    --accent-green: #4ade80;
+    --accent-amber: #fbbf24;
+    --accent-red: #fb7185;
+    --surface-light: rgba(255, 255, 255, 0.86);
+    --surface-border: rgba(255, 255, 255, 0.4);
+    --shadow-strong: 0 25px 60px rgba(83, 57, 171, 0.25);
+    --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.15);
+  }
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
+      sans-serif;
+    color: #0f172a;
+    min-height: 100vh;
+    background: radial-gradient(circle at 15% 20%, rgba(255, 255, 255, 0.7), transparent 60%),
+      radial-gradient(circle at 80% 0%, rgba(255, 182, 193, 0.6), transparent 45%),
+      radial-gradient(circle at 40% 120%, rgba(147, 197, 253, 0.7), transparent 60%),
+      linear-gradient(135deg, #fdf2ff, #f0f4ff 50%, #fdf2ff);
+    background-attachment: fixed;
+    margin: 0;
+  }
+}
+
+.page-shell {
+  min-height: 100vh;
+  backdrop-filter: blur(36px);
+  padding: 32px clamp(16px, 5vw, 48px);
+}
+
+.brand-gradient {
+  background-image: linear-gradient(120deg, var(--primary-start), var(--primary-end));
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.glass-panel {
+  background: var(--surface-light);
+  border: 1px solid var(--surface-border);
+  border-radius: 24px;
+  box-shadow: var(--shadow-strong);
+  padding: clamp(20px, 3vw, 40px);
+}
+
+.glass-surface {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+}
+
+.gradient-button {
+  background-image: linear-gradient(115deg, var(--primary-start), var(--primary-end));
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 24px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: 0 20px 30px rgba(128, 83, 255, 0.3);
+  transition: transform 200ms ease, box-shadow 200ms ease;
+  cursor: pointer;
+}
+
+.gradient-button:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 25px 35px rgba(128, 83, 255, 0.4);
+}
+
+.outline-button {
+  border: 1px solid rgba(128, 83, 255, 0.4);
+  color: #6b21a8;
+  background: rgba(128, 83, 255, 0.08);
+  border-radius: 999px;
+  padding: 12px 20px;
+  font-weight: 600;
+  transition: background-color 200ms ease, color 200ms ease, border-color 200ms ease;
+}
+
+.outline-button:hover {
+  background: rgba(128, 83, 255, 0.16);
+  border-color: rgba(128, 83, 255, 0.6);
+}
+
+.status-pill {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 12px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-pill.success {
+  background: rgba(74, 222, 128, 0.15);
+  color: #0f9d58;
+}
+
+.status-pill.info {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+.status-pill.warning {
+  background: rgba(251, 191, 36, 0.18);
+  color: #c56a07;
+}
+
+.status-pill.error {
+  background: rgba(248, 113, 113, 0.18);
+  color: #b91c1c;
+}
+
+.section-heading {
+  font-size: clamp(24px, 4vw, 42px);
+  margin-bottom: 8px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.section-subtitle {
+  color: #475569;
+  margin-bottom: 32px;
+  font-size: 15px;
+}
+
+.card-stack {
+  display: grid;
+  gap: 20px;
+}
+
+@media (min-width: 768px) {
+  .card-stack.two-column {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
