@@ -1428,12 +1428,44 @@ function LocationTab({
 
   const progressMessage =
     shareCount === 0
-      ? '?? Waiting for members to share locations...'
+      ? 'Waiting for members to share locations...'
       : shareCount < totalMembers
-      ? '?? More locations = Better suggestions!'
-      : '? All locations shared! Generate suggestions below.';
+      ? 'More shared locations unlock better suggestions.'
+      : 'All locations shared! Generate suggestions below.';
   const embedUrl = `https://maps.google.com/maps?q=${midpoint?.lat || 37.7749},${midpoint?.lng || -122.4194}&z=12&output=embed`;
   const openMapUrl = `https://www.google.com/maps?q=${midpoint?.lat || 0},${midpoint?.lng || 0}`;
+  const [geminiPrompt, setGeminiPrompt] = useState('');
+  const [geminiResponse, setGeminiResponse] = useState('');
+  const [geminiError, setGeminiError] = useState('');
+  const [isGeminiLoading, setIsGeminiLoading] = useState(false);
+
+  const handleGeminiRequest = async () => {
+    if (!geminiPrompt.trim()) {
+      setGeminiError('Please enter a prompt for Gemini.');
+      return;
+    }
+    setIsGeminiLoading(true);
+    setGeminiError('');
+    setGeminiResponse('');
+    try {
+      const response = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ prompt: geminiPrompt.trim() })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || 'Gemini failed to respond.');
+      }
+      setGeminiResponse(data?.text || 'No response from Gemini.');
+    } catch (err) {
+      setGeminiError(err.message || 'Unexpected error contacting Gemini.');
+    } finally {
+      setIsGeminiLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1451,11 +1483,53 @@ function LocationTab({
         </button>
       </div>
 
-      {error && (
-        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm">
-          {error}
+      <div className="bg-white rounded-2xl p-6 shadow-lg space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="font-semibold text-lg text-gray-900">Need a fresh idea?</h4>
+            <p className="text-sm text-gray-500">
+              Ask Gemini to brainstorm venues, timelines, or activity ideas.
+            </p>
+          </div>
         </div>
-      )}
+        <textarea
+          value={geminiPrompt}
+          onChange={(e) => setGeminiPrompt(e.target.value)}
+          placeholder="e.g., Suggest a rooftop venue near downtown for 10 people"
+          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+          rows="3"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleGeminiRequest}
+            disabled={isGeminiLoading}
+            className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isGeminiLoading ? 'Asking Gemini...' : 'Ask Gemini'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setGeminiPrompt('');
+              setGeminiResponse('');
+              setGeminiError('');
+            }}
+            className="text-sm text-gray-500 hover:text-gray-700"
+          >
+            Clear
+          </button>
+        </div>
+        {geminiError && (
+          <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm">
+            {geminiError}
+          </div>
+        )}
+        {geminiResponse && (
+          <div className="p-4 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-100 rounded-xl text-sm text-gray-800 whitespace-pre-wrap">
+            {geminiResponse}
+          </div>
+        )}
+      </div>
 
       {locationError && (
         <Alert>
@@ -2681,6 +2755,7 @@ function CreatePartyModal({ onClose, onCreate }) {
     </div>
   );
 }
+
 
 
 
