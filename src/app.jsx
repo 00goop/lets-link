@@ -460,7 +460,7 @@ export default function LetsLinkApp() {
       <div className="flex max-w-7xl mx-auto">
         {/* Sidebar - Desktop & Mobile Overlay */}
         <aside className={`
-          fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white lg:bg-transparent
+          fixed lg:sticky lg:top-[88px] lg:self-start inset-y-0 lg:inset-y-auto left-0 z-50 w-64 bg-white lg:bg-transparent
           transform transition-transform duration-300 ease-in-out
           ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           lg:block p-4 shadow-xl lg:shadow-none
@@ -745,48 +745,66 @@ function HomeView({ currentUser, parties, friends, onCreateParty, onViewParties,
     .filter(p => p.status !== 'cancelled' && new Date(p.scheduled_date) >= new Date())
     .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))
     .slice(0, 3);
+  const nextParty = upcomingParties[0];
+  const activePartyCount = parties.filter(p => p.status !== 'cancelled').length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900">Welcome back, {currentUser.username}!</h2>
-          <p className="text-gray-600 mt-1">Ready to plan your next adventure?</p>
+    <div className="space-y-8 home-dashboard">
+      <section className="planning-hero">
+        <div className="planning-hero-copy">
+          <p className="planning-eyebrow">YOUR PEOPLE / ONE PLAN</p>
+          <h2>Make “we should hang out” <span>actually happen.</span></h2>
+          <p>Welcome back, {currentUser.username}. Start the plan, invite your people, and find a fair place to meet.</p>
         </div>
         <button
           onClick={onCreateParty}
-          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium hover:from-purple-600 hover:to-pink-600 transition-all shadow-lg"
+          className="planning-primary-action"
         >
           <Plus className="w-5 h-5" />
-          <span className="hidden sm:inline">Create Party</span>
+          <span>Start a plan</span>
         </button>
-      </div>
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard
-          icon={Calendar}
-          label="Active Parties"
-          value={parties.filter(p => p.status !== 'cancelled').length}
-          gradient="from-purple-500 to-purple-600"
-        />
-        <StatCard
-          icon={Users}
-          label="Friends"
-          value={friends.length}
-          gradient="from-pink-500 to-pink-600"
-        />
-        <StatCard
-          icon={Camera}
-          label="Memories"
-          value={0}
-          gradient="from-blue-500 to-blue-600"
-        />
-      </div>
+      </section>
+
+      {nextParty ? (
+        <section className="planning-pulse">
+          <div className="next-plan-card">
+            <div className="pulse-label"><span className="pulse-dot" /> NEXT UP</div>
+            <div className="next-plan-main">
+              <div className="next-plan-emoji" aria-hidden="true">{partyTypeEmojis[nextParty.type]}</div>
+              <div>
+                <p className="next-plan-date">{formatDate(nextParty.scheduled_date)}</p>
+                <h3>{nextParty.title}</h3>
+                <p>{nextParty.description || 'The plan is open. Bring your people in and choose the details together.'}</p>
+              </div>
+            </div>
+            <div className="next-plan-footer">
+              <span><Users className="w-4 h-4" /> {nextParty.member_ids.length}/{nextParty.max_size} linked</span>
+              <span className="plan-status">{nextParty.status}</span>
+              <button onClick={() => onViewParty(nextParty)}>Continue planning <ChevronRight className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <aside className="planning-stats" aria-label="Planning overview">
+            <div><span>Active plans</span><strong>{activePartyCount}</strong></div>
+            <div><span>Coming up</span><strong>{upcomingParties.length}</strong></div>
+            <div><span>Your circle</span><strong>{friends.length}</strong></div>
+          </aside>
+        </section>
+      ) : (
+        <section className="first-plan-card">
+          <div><p className="planning-eyebrow">YOUR FIRST LINK</p><h3>A group plan in three clean moves.</h3></div>
+          <ol>
+            <li><span>01</span><div><strong>Name the moment</strong><p>Create an outing and pick a date.</p></div></li>
+            <li><span>02</span><div><strong>Bring the group</strong><p>Share one private invitation code.</p></div></li>
+            <li><span>03</span><div><strong>Meet in the middle</strong><p>Use locations people choose to share.</p></div></li>
+          </ol>
+          <button onClick={onCreateParty}>Create your first plan <ChevronRight className="w-4 h-4" /></button>
+        </section>
+      )}
 
       {/* Upcoming Parties */}
-      <div>
+      {upcomingParties.length > 0 && <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-gray-900">Upcoming Parties</h3>
+          <div><p className="planning-eyebrow">THE CALENDAR</p><h3 className="text-xl font-bold text-gray-900">Plans in motion</h3></div>
           <button
             onClick={onViewParties}
             className="text-purple-600 hover:text-purple-700 font-medium flex items-center gap-1"
@@ -796,39 +814,12 @@ function HomeView({ currentUser, parties, friends, onCreateParty, onViewParties,
           </button>
         </div>
 
-        {upcomingParties.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {upcomingParties.map(party => (
-              <PartyCard key={party.id} party={party} onClick={() => onViewParty(party)} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-gray-200">
-            <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-600 mb-4">No upcoming parties</p>
-            <button
-              onClick={onCreateParty}
-              className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all"
-            >
-              Create Your First Party
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ icon: Icon, label, value, gradient }) {
-  return (
-    <div className={`bg-gradient-to-br ${gradient} rounded-2xl p-6 text-white shadow-lg`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-white/80 text-sm mb-1">{label}</p>
-          <p className="text-3xl font-bold">{value}</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {upcomingParties.map(party => (
+            <PartyCard key={party.id} party={party} onClick={() => onViewParty(party)} />
+          ))}
         </div>
-        <Icon className="w-10 h-10 opacity-80" />
-      </div>
+      </div>}
     </div>
   );
 }
@@ -837,11 +828,11 @@ function PartyCard({ party, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="bg-white rounded-2xl p-6 shadow-md hover:shadow-xl transition-all text-left w-full border border-gray-100"
+      className="party-card text-left w-full"
     >
       <div className="flex items-start justify-between mb-4">
         <div className="text-3xl">{partyTypeEmojis[party.type]}</div>
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${
           party.status === 'planning' ? 'bg-yellow-100 text-yellow-700' :
           party.status === 'confirmed' ? 'bg-green-100 text-green-700' :
           'bg-gray-100 text-gray-700'
@@ -920,11 +911,11 @@ function PartiesView({ parties, currentUser, onCreateParty, onViewParty, onJoinP
       )}
 
       {showJoinModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" aria-labelledby="join-party-title">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold">Join Party</h3>
-              <button onClick={() => setShowJoinModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+              <h3 className="text-xl font-bold" id="join-party-title">Join Party</h3>
+              <button aria-label="Close join party dialog" onClick={() => setShowJoinModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -941,6 +932,7 @@ function PartiesView({ parties, currentUser, onCreateParty, onViewParty, onJoinP
                 setShowJoinModal(false);
                 setJoinCode('');
               }}
+              disabled={!joinCode.trim()}
               className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium"
             >
               Join
@@ -971,6 +963,7 @@ function PartyDetailView({
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showLocationShare, setShowLocationShare] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState([]);
 
@@ -978,18 +971,29 @@ function PartyDetailView({
   const members = partyMembers.map(m => users.find(u => u.id === m.user_id)).filter(Boolean);
   const memberLocations = partyMembers.filter(m => m.location_lat && m.location_lng);
 
-  const shareJoinCode = () => {
-    navigator.clipboard.writeText(party.join_code);
-    alert('Join code copied!');
+  const shareJoinCode = async () => {
+    try {
+      await navigator.clipboard.writeText(party.join_code);
+      setActionMessage('Join code copied.');
+      setShowShareMenu(false);
+    } catch {
+      setActionMessage('Could not copy the code. Select it and copy manually.');
+    }
   };
 
-  const shareLink = () => {
+  const shareLink = async () => {
     const link = `${window.location.origin}?join=${party.join_code}`;
-    if (navigator.share) {
-      navigator.share({ title: party.title, url: link });
-    } else {
-      navigator.clipboard.writeText(link);
-      alert('Link copied!');
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: party.title, url: link });
+        setActionMessage('Invitation shared.');
+      } else {
+        await navigator.clipboard.writeText(link);
+        setActionMessage('Invitation link copied.');
+      }
+      setShowShareMenu(false);
+    } catch (error) {
+      if (error?.name !== 'AbortError') setActionMessage('Could not share the invitation. Try copying the join code.');
     }
   };
 
@@ -1008,7 +1012,7 @@ function PartyDetailView({
           'Current Location'
         );
         setShowLocationShare(false);
-        alert('Location shared successfully!');
+        setActionMessage('Your location was shared with this party.');
       },
       (error) => {
         let message = 'Unable to retrieve location. ';
@@ -1029,8 +1033,8 @@ function PartyDetailView({
     try {
       const suggestions = await generateAISuggestions(party.type, memberLocations);
       setAiSuggestions(suggestions);
-    } catch (error) {
-      alert('Failed to generate suggestions');
+    } catch {
+      setActionMessage('Suggestions are unavailable right now. Your party details are still saved.');
     }
     setIsLoadingSuggestions(false);
   };
@@ -1046,20 +1050,20 @@ function PartyDetailView({
           <ChevronRight className="w-6 h-6 rotate-180" />
         </button>
         <div className="flex gap-2">
-          {isHost && (
-            <button className="p-2 hover:bg-white rounded-lg transition-colors">
-              <Settings className="w-5 h-5" />
+          <div className="relative">
+            <button
+              aria-label="Share party invitation"
+              aria-expanded={showShareMenu}
+              onClick={() => setShowShareMenu(!showShareMenu)}
+              className="p-2 hover:bg-white rounded-lg transition-colors"
+            >
+              <Share2 className="w-5 h-5" />
             </button>
-          )}
-          <button
-            onClick={() => setShowShareMenu(!showShareMenu)}
-            className="p-2 hover:bg-white rounded-lg transition-colors relative"
-          >
-            <Share2 className="w-5 h-5" />
             {showShareMenu && (
-              <div className="absolute right-0 top-full mt-2 bg-white rounded-xl shadow-xl p-2 w-48 z-10">
+              <div className="absolute right-0 top-full mt-2 bg-white rounded-xl shadow-xl p-2 w-48 z-10" role="menu">
                 <button
                   onClick={shareJoinCode}
+                  role="menuitem"
                   className="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-lg flex items-center gap-2"
                 >
                   <Copy className="w-4 h-4" />
@@ -1067,6 +1071,7 @@ function PartyDetailView({
                 </button>
                 <button
                   onClick={shareLink}
+                  role="menuitem"
                   className="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-lg flex items-center gap-2"
                 >
                   <Share2 className="w-4 h-4" />
@@ -1074,9 +1079,11 @@ function PartyDetailView({
                 </button>
               </div>
             )}
-          </button>
+          </div>
         </div>
       </div>
+
+      {actionMessage && <div className="action-message" role="status">{actionMessage}<button aria-label="Dismiss message" onClick={() => setActionMessage('')}><X className="w-4 h-4" /></button></div>}
 
       {/* Party Info Card */}
       <div className="bg-white rounded-2xl p-6 shadow-lg">
@@ -2585,6 +2592,7 @@ function CreatePartyModal({ onClose, onCreate }) {
     </div>
   );
 }
+
 
 
 

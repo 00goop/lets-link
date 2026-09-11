@@ -1,9 +1,24 @@
 # Let's Link
 
-Plan an outing around your people. Create a party, share an invitation code,
-and calculate a meeting center from locations participants choose to share.
-React and Tailwind retain the original purple/pink social-planning identity;
-Express provides validated APIs with SQLite persistence.
+**Turn “we should hang out” into a plan everyone can reach.**
+
+Let's Link is a social outing planner built around the awkward middle of group
+coordination. One person starts a plan, friends join with a private code, and the
+group can calculate a shared meeting center from locations each participant chooses
+to provide. The purple/pink React interface keeps the original project personality;
+an Express API and SQLite store make the core flow durable and testable.
+
+| Step | Experience | Implementation |
+| --- | --- | --- |
+| Start | Create a dated, capacity-limited party | Authenticated and validated API write |
+| Link | Invite participants with one private code | Idempotent, member-scoped join flow |
+| Locate | Share location only when ready | Per-member location update |
+| Meet | Calculate a common center | Tested spherical mean, including the date line |
+| Explore | Request outing suggestions | Optional server-side Gemini integration |
+
+The home dashboard surfaces the next plan and the action needed to keep it moving.
+It does not invent activity: new accounts receive a three-step first-plan path, and
+AI suggestions report when the provider is unavailable.
 
 ## Run locally
 
@@ -63,3 +78,4 @@ See [migration map](docs/migration-map.md) for preserved historical implementati
 - Historical role: full-stack lead at Emory Hacks, as stated in the supplied resume.
   Current modernization adds separately tested backend behavior; do not describe
   these later additions as verified hackathon-era implementation.
+
