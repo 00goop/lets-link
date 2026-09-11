@@ -555,3 +555,8 @@
   box-shadow: 0 4px 16px rgba(128, 83, 255, 0.08);
   background: rgba(255, 255, 255, 0.95);
 }
+
+:focus-visible { outline: 3px solid #7c3aed; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

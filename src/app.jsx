@@ -1,3 +1,5 @@
+import { request } from './services/api';
+import { geographicCenter } from '../shared/geo';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Camera, Users, Calendar, MapPin, Bell, User, Home, Plus, X, Check, Share2, Copy, LogOut, Edit, Trash2, Send, Heart, MessageCircle, ChevronRight, Search, Filter, Navigation, Settings, UserPlus, Clock, Image, Vote, Utensils, Loader2, Menu, XCircle, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -36,39 +38,6 @@ const usePersistedState = (key, defaultValue) => {
   return [state, setState];
 };
 
-const suggestionTemplates = {
-  recreational: [
-    { name: 'Riverside Adventure Park', address: 'Central plaza', reason: 'Perfect for outdoor activities and games' },
-    { name: 'Urban Gaming Lounge', address: 'Warehouse district', reason: 'Indoor gaming and entertainment hub' },
-    { name: 'Community Sports Complex', address: 'Midtown center', reason: 'Multiple sports facilities available' }
-  ],
-  dining: [
-    { name: 'The Gathering Table', address: 'Food district', reason: 'Great for groups with diverse menu options' },
-    { name: 'Skyline Bistro', address: 'High-rise view', reason: 'Upscale dining with amazing views' },
-    { name: 'Family Style Kitchen', address: 'Central square', reason: 'Casual dining perfect for large groups' }
-  ],
-  family_vacation: [
-    { name: 'Lakeside Resort & Spa', address: 'Waterfront promenade', reason: 'Family-friendly with activities for all ages' },
-    { name: 'Mountain View Lodge', address: 'Ridgeline trailhead', reason: 'Scenic location with hiking trails' },
-    { name: 'Beach Front Hotel', address: 'Coastal boardwalk', reason: 'Ocean activities and family entertainment' }
-  ],
-  entertainment: [
-    { name: 'Grand Cinema Complex', address: 'Entertainment district', reason: 'Latest movies and IMAX screens' },
-    { name: 'Live Music Venue', address: 'Arts quarter', reason: 'Great acoustics and vibrant atmosphere' },
-    { name: 'Comedy & Theater Club', address: 'Downtown row', reason: 'Perfect for a fun night out' }
-  ],
-  shopping: [
-    { name: 'Plaza Shopping Center', address: 'Retail promenade', reason: 'Over 200 stores and restaurants' },
-    { name: 'Artisan Market Square', address: 'Old town', reason: 'Unique boutiques and local crafts' },
-    { name: 'Mega Market Hall', address: 'Transit hub', reason: 'All major brands under one roof' }
-  ],
-  educational: [
-    { name: 'Science & Discovery Museum', address: 'Museum district', reason: 'Interactive exhibits and workshops' },
-    { name: 'Public Library Commons', address: 'City center', reason: 'Quiet study spaces and resources' },
-    { name: 'University Conference Hall', address: 'Campus area', reason: 'Professional learning environment' }
-  ]
-};
-
 const placeQueryMap = {
   recreational: ['park', 'playground', 'recreation center'],
   dining: ['restaurant', 'brunch', 'food hall'],
@@ -78,70 +47,17 @@ const placeQueryMap = {
   educational: ['museum', 'science center', 'library']
 };
 
-const fallbackOffsets = [
-  { lat: 0, lng: 0 },
-  { lat: 0.003, lng: 0.001 },
-  { lat: -0.002, lng: 0.002 },
-  { lat: 0.001, lng: -0.003 }
-];
-
-const restaurantFallbacks = [
-  { name: 'Gather & Dine', description: 'Shared plates & craft cocktails' },
-  { name: 'Sunset Brunch Club', description: 'All-day brunch & mocktails' },
-  { name: 'Midtown Noodle House', description: 'Comfort bowls & late-night snacks' },
-  { name: 'Rooftop Grill Society', description: 'Skewer flights & skyline views' },
-  { name: 'Garden & Grain', description: 'Veg-forward bites & tea bar' },
-  { name: 'City Scoop Café', description: 'Desserts and espresso pairings' }
-];
-
 const geocodeCache = {};
 
-// Mock AI function
+// Return only provider records; missing data must not become invented venues.
 const generateAISuggestions = async (partyType, memberLocations = []) => {
-  const templates = suggestionTemplates[partyType] || suggestionTemplates.recreational;
-
-  if (!memberLocations.length) {
-    return templates.map(template => ({
-      ...template,
-      lat: null,
-      lng: null,
-      distanceMiles: null
-    }));
+  const midpoint = calculateMidpoint(memberLocations.map(loc => ({lat:loc.location_lat,lng:loc.location_lng})));
+  if (!midpoint) return [];
+  for (const query of (placeQueryMap[partyType] || ['community space'])) {
+    const places = await fetchNearbyPlaces(midpoint, query, 5);
+    if (places.length) return places;
   }
-
-  const midpoint = calculateMidpoint(
-    memberLocations.map(loc => ({
-      lat: loc.location_lat,
-      lng: loc.location_lng
-    }))
-  );
-
-  const queries = placeQueryMap[partyType] || ['meetup spot', 'community space'];
-  for (const query of queries) {
-    try {
-      const places = await fetchNearbyPlaces(midpoint, query, 5);
-      if (places.length) {
-        return places;
-      }
-    } catch (error) {
-      // Try the next query or fallback to templates
-    }
-  }
-
-  return templates.map((template, index) => {
-    const offset = fallbackOffsets[index % fallbackOffsets.length];
-    const lat = midpoint.lat + offset.lat;
-    const lng = midpoint.lng + offset.lng;
-    const distanceMiles = calculateDistanceMiles(midpoint, { lat, lng });
-
-    return {
-      ...template,
-      lat,
-      lng,
-      distanceMiles: Number(distanceMiles.toFixed(1)),
-      address: `${template.address} · ${distanceMiles.toFixed(1)} miles from meetup center`
-    };
-  });
+  return [];
 };
 
 const generateRestaurantSuggestions = async (location, dietary, memberLocations = []) => {
@@ -166,19 +82,14 @@ const generateRestaurantSuggestions = async (location, dietary, memberLocations 
   return restaurants.map(place => ({
     name: place.name,
     cuisine: dietary || 'Restaurant',
-    rating: place.score ?? 4.2,
+    
     address: place.address,
     distanceMiles: place.distanceMiles
   }));
 };
 
-const calculateMidpoint = (locations) => {
-  if (!locations.length) return null;
-  const sum = locations.reduce((acc, loc) => ({
-    lat: acc.lat + loc.lat,
-    lng: acc.lng + loc.lng
-  }), { lat: 0, lng: 0 });
-  return { lat: sum.lat / locations.length, lng: sum.lng / locations.length };
+const calculateMidpoint = locations => {
+  try { return geographicCenter(locations); } catch { return null; }
 };
 
 const toRadians = (deg) => (deg * Math.PI) / 180;
@@ -207,7 +118,7 @@ const geocodePlaceName = async (placeName) => {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
       placeName
-    )}&email=support@letslink.app`;
+    )}`;
 
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Failed to geocode');
@@ -222,26 +133,7 @@ const geocodePlaceName = async (placeName) => {
   }
 };
 
-const buildFallbackPlaces = (center, query, limit = 5) => {
-  const results = [];
-  for (let i = 0; i < limit; i += 1) {
-    const template = restaurantFallbacks[i % restaurantFallbacks.length];
-    const offset = fallbackOffsets[i % fallbackOffsets.length];
-    const lat = center.lat + offset.lat * (i + 1);
-    const lng = center.lng + offset.lng * (i + 1);
-    results.push({
-      name: `${template.name}${query ? ` · ${query.split(' ')[0]}` : ''}`,
-      address: `${(lat).toFixed(4)}, ${(lng).toFixed(4)} • ${template.description}`,
-      lat,
-      lng,
-      distanceMiles: Number(calculateDistanceMiles(center, { lat, lng }).toFixed(1)),
-      score: Number((4.1 + (i * 0.1)).toFixed(1))
-    });
-  }
-  return results;
-};
-
-const fetchNearbyPlaces = async (center, query, limit = 5, allowFallback = true) => {
+const fetchNearbyPlaces = async (center, query, limit = 5) => {
   if (!center) return [];
   const delta = 0.02;
   const viewbox = [
@@ -254,7 +146,7 @@ const fetchNearbyPlaces = async (center, query, limit = 5, allowFallback = true)
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=${limit}&q=${encodeURIComponent(
       query
-    )}&bounded=1&viewbox=${viewbox}&email=support@letslink.app`;
+    )}&bounded=1&viewbox=${viewbox}`;
 
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Failed to fetch places');
@@ -270,14 +162,11 @@ const fetchNearbyPlaces = async (center, query, limit = 5, allowFallback = true)
         lat,
         lng,
         distanceMiles: Number(calculateDistanceMiles(center, { lat, lng }).toFixed(1)),
-        score: place.importance ? Number((3.5 + place.importance).toFixed(1)) : undefined
+        source: 'OpenStreetMap'
       };
     });
   } catch (error) {
-    if (allowFallback) {
-      return buildFallbackPlaces(center, query, limit);
-    }
-    throw error;
+    return [];
   }
 };
 
@@ -294,12 +183,12 @@ const partyTypeEmojis = {
 // Main App Component
 export default function LetsLinkApp() {
   // Auth state
-  const [currentUser, setCurrentUser] = usePersistedState('currentUser', null);
-  const [users, setUsers] = usePersistedState('users', []);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
   
   // App state
-  const [parties, setParties] = usePersistedState('parties', []);
-  const [partyMembers, setPartyMembers] = usePersistedState('partyMembers', []);
+  const [parties, setParties] = useState([]);
+  const [partyMembers, setPartyMembers] = useState([]);
   const [friends, setFriends] = usePersistedState('friends', []);
   const [photos, setPhotos] = usePersistedState('photos', []);
   const [notifications, setNotifications] = usePersistedState('notifications', []);
@@ -313,6 +202,23 @@ export default function LetsLinkApp() {
   const [selectedParty, setSelectedParty] = useState(null);
   const [showCreateParty, setShowCreateParty] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [apiError, setApiError] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
+  const hydrate = useCallback(async () => {
+    const state = await request('/state');
+    setCurrentUser(state.user); setUsers(state.users); setParties(state.parties); setPartyMembers(state.partyMembers);
+    setSelectedParty(previous => state.parties.find(p => p.id === previous?.id) || null);
+    return state;
+  }, []);
+  useEffect(() => {
+    hydrate().catch(error => { if (error.status !== 401) setApiError('The server is unavailable. Start the API and reload.'); }).finally(() => setAuthLoading(false));
+  }, [hydrate]);
+  useEffect(() => {
+    if (!currentUser) return;
+    const timer = setInterval(() => hydrate().catch(() => {}), 10000);
+    return () => clearInterval(timer);
+  }, [currentUser?.id, hydrate]);
+
 
   // Computed values
   const myParties = parties.filter(p => 
@@ -328,85 +234,34 @@ export default function LetsLinkApp() {
   const unreadNotifications = notifications.filter(n => n.user_id === currentUser?.id && !n.read);
 
   // Auth functions
-  const handleAuth = (email, password, fullName, username) => {
-    if (isSignUp) {
-      const newUser = {
-        id: generateId(),
-        email,
-        full_name: fullName,
-        username: username || email.split('@')[0],
-        role: 'user',
-        bio: '',
-        location: '',
-        interests: '',
-        phone: '',
-        profile_picture_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-      };
-      setUsers([...users, newUser]);
-      setCurrentUser(newUser);
-      setShowAuthModal(false);
-    } else {
-      const user = users.find(u => u.email === email);
-      if (user) {
-        setCurrentUser(user);
-        setShowAuthModal(false);
-      }
-    }
+  const handleAuth = async (email, password, fullName, username) => {
+    setApiError(''); setAuthLoading(true);
+    try {
+      await request(isSignUp ? '/auth/register' : '/auth/login', {body:{email,password,full_name:fullName,username}});
+      await hydrate(); setShowAuthModal(false);
+    } catch(error) { setApiError(error.message); }
+    finally { setAuthLoading(false); }
   };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setCurrentView('home');
+  const handleLogout = async () => {
+    try { await request('/auth/logout',{method:'POST'}); }
+    catch(error) { setApiError(error.message); return; }
+    setCurrentUser(null); setUsers([]); setParties([]); setPartyMembers([]);
+    setFriends([]); setPhotos([]); setNotifications([]); setPolls([]); setVotes([]);
+    setSelectedParty(null); setCurrentView('home');
   };
-
-  // Party functions
-  const createParty = (partyData) => {
-    const newParty = {
-      id: generateId(),
-      ...partyData,
-      host_id: currentUser.id,
-      join_code: generateJoinCode(),
-      status: 'planning',
-      member_ids: [currentUser.id],
-      created_at: new Date().toISOString()
-    };
-    setParties([...parties, newParty]);
-    
-    const membership = {
-      id: generateId(),
-      party_id: newParty.id,
-      user_id: currentUser.id,
-      status: 'active',
-      joined_at: new Date().toISOString()
-    };
-    setPartyMembers([...partyMembers, membership]);
-    
-    setShowCreateParty(false);
-    setSelectedParty(newParty);
-    setCurrentView('party-detail');
+  const createParty = async partyData => {
+    setApiError('');
+    try {
+      const {party}=await request('/parties',{body:partyData});
+      await hydrate(); setShowCreateParty(false); setSelectedParty(party); setCurrentView('party-detail');
+    } catch(error) { setApiError(error.message); }
   };
-
-  const joinParty = (joinCode) => {
-    const party = parties.find(p => p.join_code === joinCode);
-    if (party && !party.member_ids.includes(currentUser.id)) {
-      const updatedParty = {
-        ...party,
-        member_ids: [...party.member_ids, currentUser.id]
-      };
-      setParties(parties.map(p => p.id === party.id ? updatedParty : p));
-      
-      const membership = {
-        id: generateId(),
-        party_id: party.id,
-        user_id: currentUser.id,
-        status: 'active',
-        joined_at: new Date().toISOString()
-      };
-      setPartyMembers([...partyMembers, membership]);
-      
-      setSelectedParty(updatedParty);
-      setCurrentView('party-detail');
-    }
+  const joinParty = async joinCode => {
+    setApiError('');
+    try {
+      const {party}=await request('/parties/join',{body:{code:joinCode}});
+      await hydrate(); setSelectedParty(party); setCurrentView('party-detail');
+    } catch(error) { setApiError(error.message); }
   };
 
   // Friend functions
@@ -455,10 +310,14 @@ export default function LetsLinkApp() {
             <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
               Let's Link
             </h1>
-            <p className="text-gray-600">Plan amazing outings with friends</p>
+            <p className="text-gray-600">Good plans start with a shared place.</p>
+            <p className="text-sm text-gray-500 mt-3">Create a party, invite your people, and find a center that brings everyone closer.</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8">
+            {apiError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-red-700">{apiError}</p>}
+            {authLoading && <p role="status" className="mb-3 text-gray-600">Connecting…</p>}
+            <p className="text-xs text-gray-500 mb-4">Accounts and parties are saved on the server. New accounts require a password of at least 12 characters.</p>
             <div className="flex gap-2 mb-6">
               <button
                 onClick={() => setIsSignUp(false)}
@@ -482,7 +341,7 @@ export default function LetsLinkApp() {
               </button>
             </div>
 
-            <div
+            <form
               onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
@@ -500,14 +359,14 @@ export default function LetsLinkApp() {
                   <input
                     name="fullName"
                     type="text"
-                    placeholder="Full Name"
+                    aria-label="Full Name" placeholder="Full Name"
                     required
                     className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                   <input
                     name="username"
                     type="text"
-                    placeholder="Username"
+                    aria-label="Username" placeholder="Username"
                     required
                     className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
@@ -516,33 +375,26 @@ export default function LetsLinkApp() {
               <input
                 name="email"
                 type="email"
-                placeholder="Email"
+                aria-label="Email" placeholder="Email"
                 required
                 className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
               <input
                 name="password"
+                minLength={isSignUp ? 12 : 1}
+                maxLength={128}
+                autoComplete={isSignUp ? "new-password" : "current-password"}
                 type="password"
-                placeholder="Password"
+                aria-label="Password" placeholder="Password"
                 required
                 className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
-              <button
-                type="button"
-                onClick={(e) => {
-                  const form = e.target.closest('div');
-                  const inputs = form.querySelectorAll('input');
-                  const data = {};
-                  inputs.forEach(input => {
-                    data[input.name] = input.value;
-                  });
-                  handleAuth(data.email, data.password, data.fullName, data.username);
-                }}
+              <button type="submit" disabled={authLoading}
                 className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all"
               >
                 {isSignUp ? 'Create Account' : 'Sign In'}
               </button>
-            </div>
+            </form>
           </div>
         </div>
       </div>
@@ -552,12 +404,15 @@ export default function LetsLinkApp() {
   // Main app layout
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
+      <div className="mx-auto max-w-7xl px-4 pt-3 text-xs text-gray-600">Accounts, invitations and party locations sync with the server. Photos, polls and friend drafts are local to this browser.</div>
+      {apiError && <div role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-red-700">{apiError}</div>}
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Toggle navigation" aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             >
               <Menu className="w-6 h-6" />
@@ -574,7 +429,7 @@ export default function LetsLinkApp() {
 
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setCurrentView('notifications')}
+              aria-label="Notifications" onClick={() => setCurrentView('notifications')}
               className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <Bell className="w-5 h-5" />
@@ -593,7 +448,7 @@ export default function LetsLinkApp() {
               <span className="hidden sm:block font-medium">{currentUser.username}</span>
             </div>
             <button
-              onClick={handleLogout}
+              aria-label="Sign out" onClick={handleLogout}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <LogOut className="w-5 h-5" />
@@ -718,9 +573,8 @@ export default function LetsLinkApp() {
               votes={votes}
               onBack={() => setCurrentView('parties')}
               onUpdateParty={(updates) => {
-                const updated = { ...selectedParty, ...updates };
-                setParties(parties.map(p => p.id === selectedParty.id ? updated : p));
-                setSelectedParty(updated);
+                request(`/parties/${selectedParty.id}`, {method:'PATCH',body:updates})
+                  .then(hydrate).catch(error => setApiError(error.message));
               }}
               onUploadPhoto={(photoData) => {
                 const newPhoto = {
@@ -760,17 +614,9 @@ export default function LetsLinkApp() {
                   }]);
                 }
               }}
-              onUpdateLocation={(lat, lng, name) => {
-                const membership = partyMembers.find(
-                  m => m.party_id === selectedParty.id && m.user_id === currentUser.id
-                );
-                if (membership) {
-                  setPartyMembers(partyMembers.map(m =>
-                    m.id === membership.id
-                      ? { ...m, location_lat: lat, location_lng: lng, location_name: name }
-                      : m
-                  ));
-                }
+              onUpdateLocation={async (lat,lng,name) => {
+                try { await request(`/parties/${selectedParty.id}/location`,{method:'PATCH',body:{lat,lng,name}}); await hydrate(); }
+                catch(error) { setApiError(error.message); }
               }}
             />
           )}
@@ -803,9 +649,7 @@ export default function LetsLinkApp() {
             <ProfileView
               user={currentUser}
               onUpdateProfile={(updates) => {
-                const updated = { ...currentUser, ...updates };
-                setCurrentUser(updated);
-                setUsers(users.map(u => u.id === currentUser.id ? updated : u));
+                request('/users/me', {method:'PATCH',body:updates}).then(() => hydrate()).catch(error => setApiError(error.message));
               }}
             />
           )}
@@ -1088,7 +932,7 @@ function PartiesView({ parties, currentUser, onCreateParty, onViewParty, onJoinP
               type="text"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              placeholder="Enter join code"
+              aria-label="Enter join code" placeholder="Enter join code"
               className="w-full px-4 py-3 border border-gray-200 rounded-lg mb-4"
             />
             <button
@@ -1268,7 +1112,7 @@ function PartyDetailView({
               {!party.location_name && (
                 <div className="flex items-center gap-2 text-purple-600 col-span-2">
                   <Navigation className="w-5 h-5" />
-                  <span className="text-sm">Location to be determined by AI suggestions</span>
+                  <span className="text-sm">Meeting place not selected yet</span>
                 </div>
               )}
             </div>
@@ -1432,8 +1276,8 @@ function LocationTab({
       : shareCount < totalMembers
       ? 'More shared locations unlock better suggestions.'
       : 'All locations shared! Generate suggestions below.';
-  const embedUrl = `https://maps.google.com/maps?q=${midpoint?.lat || 37.7749},${midpoint?.lng || -122.4194}&z=12&output=embed`;
-  const openMapUrl = `https://www.google.com/maps?q=${midpoint?.lat || 0},${midpoint?.lng || 0}`;
+  const embedUrl = `https://maps.google.com/maps?q=${midpoint?.lat ?? 0},${midpoint?.lng ?? 0}&z=12&output=embed`;
+  const openMapUrl = `https://www.google.com/maps?q=${midpoint?.lat ?? 0},${midpoint?.lng ?? 0}`;
   const [geminiPrompt, setGeminiPrompt] = useState('');
   const [geminiResponse, setGeminiResponse] = useState('');
   const [geminiError, setGeminiError] = useState('');
@@ -1448,17 +1292,7 @@ function LocationTab({
     setGeminiError('');
     setGeminiResponse('');
     try {
-      const response = await fetch('/api/gemini', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ prompt: geminiPrompt.trim() })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data?.error || 'Gemini failed to respond.');
-      }
+      const data = await request('/venues/recommend', {body:{party_id:party.id,preferences:geminiPrompt.trim()}});
       setGeminiResponse(data?.text || 'No response from Gemini.');
     } catch (err) {
       setGeminiError(err.message || 'Unexpected error contacting Gemini.');
@@ -1488,11 +1322,12 @@ function LocationTab({
           <div>
             <h4 className="font-semibold text-lg text-gray-900">Need a fresh idea?</h4>
             <p className="text-sm text-gray-500">
-              Ask Gemini to brainstorm venues, timelines, or activity ideas.
+              Brainstorm around shared locations. Suggested venues and availability need independent verification.
             </p>
           </div>
         </div>
         <textarea
+          aria-label="Venue preferences" maxLength={1000}
           value={geminiPrompt}
           onChange={(e) => setGeminiPrompt(e.target.value)}
           placeholder="e.g., Suggest a rooftop venue near downtown for 10 people"
@@ -1616,7 +1451,7 @@ function LocationTab({
           <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h4 className="font-bold text-lg mb-1">?? AI Location Suggestions</h4>
+                <h4 className="font-bold text-lg mb-1">Nearby venue listings</h4>
                 <p className="text-sm text-purple-100">
                   Based on your {party.type.replace('_', ' ')} party type and member locations
                 </p>
@@ -2140,12 +1975,7 @@ function FoodFinderTab({ partyLocation, memberLocations }) {
             <div key={idx} className="p-4 bg-white border border-gray-200 rounded-xl hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-2">
                 <h4 className="font-semibold text-lg">{restaurant.name}</h4>
-                <div className="flex items-center gap-1 text-yellow-500">
-                  <span className="text-sm font-medium">
-                    {(restaurant.rating ?? 4.2).toFixed(1)}
-                  </span>
-                  <span>★</span>
-                </div>
+                <span className="text-xs text-gray-500">OpenStreetMap listing</span>
               </div>
               <p className="text-sm text-gray-600 mb-2">{restaurant.cuisine}</p>
               <p className="text-sm text-gray-500">{restaurant.address}</p>
@@ -2755,6 +2585,7 @@ function CreatePartyModal({ onClose, onCreate }) {
     </div>
   );
 }
+
 
 
 
