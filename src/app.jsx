@@ -1,3 +1,5 @@
+import { request } from './services/api';
+import { geographicCenter } from '../shared/geo';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Camera, Users, Calendar, MapPin, Bell, User, Home, Plus, X, Check, Share2, Copy, LogOut, Edit, Trash2, Send, Heart, MessageCircle, ChevronRight, Search, Filter, Navigation, Settings, UserPlus, Clock, Image, Vote, Utensils, Loader2, Menu, XCircle, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -36,39 +38,6 @@ const usePersistedState = (key, defaultValue) => {
   return [state, setState];
 };
 
-const suggestionTemplates = {
-  recreational: [
-    { name: 'Riverside Adventure Park', address: 'Central plaza', reason: 'Perfect for outdoor activities and games' },
-    { name: 'Urban Gaming Lounge', address: 'Warehouse district', reason: 'Indoor gaming and entertainment hub' },
-    { name: 'Community Sports Complex', address: 'Midtown center', reason: 'Multiple sports facilities available' }
-  ],
-  dining: [
-    { name: 'The Gathering Table', address: 'Food district', reason: 'Great for groups with diverse menu options' },
-    { name: 'Skyline Bistro', address: 'High-rise view', reason: 'Upscale dining with amazing views' },
-    { name: 'Family Style Kitchen', address: 'Central square', reason: 'Casual dining perfect for large groups' }
-  ],
-  family_vacation: [
-    { name: 'Lakeside Resort & Spa', address: 'Waterfront promenade', reason: 'Family-friendly with activities for all ages' },
-    { name: 'Mountain View Lodge', address: 'Ridgeline trailhead', reason: 'Scenic location with hiking trails' },
-    { name: 'Beach Front Hotel', address: 'Coastal boardwalk', reason: 'Ocean activities and family entertainment' }
-  ],
-  entertainment: [
-    { name: 'Grand Cinema Complex', address: 'Entertainment district', reason: 'Latest movies and IMAX screens' },
-    { name: 'Live Music Venue', address: 'Arts quarter', reason: 'Great acoustics and vibrant atmosphere' },
-    { name: 'Comedy & Theater Club', address: 'Downtown row', reason: 'Perfect for a fun night out' }
-  ],
-  shopping: [
-    { name: 'Plaza Shopping Center', address: 'Retail promenade', reason: 'Over 200 stores and restaurants' },
-    { name: 'Artisan Market Square', address: 'Old town', reason: 'Unique boutiques and local crafts' },
-    { name: 'Mega Market Hall', address: 'Transit hub', reason: 'All major brands under one roof' }
-  ],
-  educational: [
-    { name: 'Science & Discovery Museum', address: 'Museum district', reason: 'Interactive exhibits and workshops' },
-    { name: 'Public Library Commons', address: 'City center', reason: 'Quiet study spaces and resources' },
-    { name: 'University Conference Hall', address: 'Campus area', reason: 'Professional learning environment' }
-  ]
-};
-
 const placeQueryMap = {
   recreational: ['park', 'playground', 'recreation center'],
   dining: ['restaurant', 'brunch', 'food hall'],
@@ -78,70 +47,17 @@ const placeQueryMap = {
   educational: ['museum', 'science center', 'library']
 };
 
-const fallbackOffsets = [
-  { lat: 0, lng: 0 },
-  { lat: 0.003, lng: 0.001 },
-  { lat: -0.002, lng: 0.002 },
-  { lat: 0.001, lng: -0.003 }
-];
-
-const restaurantFallbacks = [
-  { name: 'Gather & Dine', description: 'Shared plates & craft cocktails' },
-  { name: 'Sunset Brunch Club', description: 'All-day brunch & mocktails' },
-  { name: 'Midtown Noodle House', description: 'Comfort bowls & late-night snacks' },
-  { name: 'Rooftop Grill Society', description: 'Skewer flights & skyline views' },
-  { name: 'Garden & Grain', description: 'Veg-forward bites & tea bar' },
-  { name: 'City Scoop Café', description: 'Desserts and espresso pairings' }
-];
-
 const geocodeCache = {};
 
-// Mock AI function
+// Return only provider records; missing data must not become invented venues.
 const generateAISuggestions = async (partyType, memberLocations = []) => {
-  const templates = suggestionTemplates[partyType] || suggestionTemplates.recreational;
-
-  if (!memberLocations.length) {
-    return templates.map(template => ({
-      ...template,
-      lat: null,
-      lng: null,
-      distanceMiles: null
-    }));
+  const midpoint = calculateMidpoint(memberLocations.map(loc => ({lat:loc.location_lat,lng:loc.location_lng})));
+  if (!midpoint) return [];
+  for (const query of (placeQueryMap[partyType] || ['community space'])) {
+    const places = await fetchNearbyPlaces(midpoint, query, 5);
+    if (places.length) return places;
   }
-
-  const midpoint = calculateMidpoint(
-    memberLocations.map(loc => ({
-      lat: loc.location_lat,
-      lng: loc.location_lng
-    }))
-  );
-
-  const queries = placeQueryMap[partyType] || ['meetup spot', 'community space'];
-  for (const query of queries) {
-    try {
-      const places = await fetchNearbyPlaces(midpoint, query, 5);
-      if (places.length) {
-        return places;
-      }
-    } catch (error) {
-      // Try the next query or fallback to templates
-    }
-  }
-
-  return templates.map((template, index) => {
-    const offset = fallbackOffsets[index % fallbackOffsets.length];
-    const lat = midpoint.lat + offset.lat;
-    const lng = midpoint.lng + offset.lng;
-    const distanceMiles = calculateDistanceMiles(midpoint, { lat, lng });
-
-    return {
-      ...template,
-      lat,
-      lng,
-      distanceMiles: Number(distanceMiles.toFixed(1)),
-      address: `${template.address} · ${distanceMiles.toFixed(1)} miles from meetup center`
-    };
-  });
+  return [];
 };
 
 const generateRestaurantSuggestions = async (location, dietary, memberLocations = []) => {
@@ -166,19 +82,14 @@ const generateRestaurantSuggestions = async (location, dietary, memberLocations 
   return restaurants.map(place => ({
     name: place.name,
     cuisine: dietary || 'Restaurant',
-    rating: place.score ?? 4.2,
+    
     address: place.address,
     distanceMiles: place.distanceMiles
   }));
 };
 
-const calculateMidpoint = (locations) => {
-  if (!locations.length) return null;
-  const sum = locations.reduce((acc, loc) => ({
-    lat: acc.lat + loc.lat,
-    lng: acc.lng + loc.lng
-  }), { lat: 0, lng: 0 });
-  return { lat: sum.lat / locations.length, lng: sum.lng / locations.length };
+const calculateMidpoint = locations => {
+  try { return geographicCenter(locations); } catch { return null; }
 };
 
 const toRadians = (deg) => (deg * Math.PI) / 180;
@@ -207,7 +118,7 @@ const geocodePlaceName = async (placeName) => {
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(
       placeName
-    )}&email=support@letslink.app`;
+    )}`;
 
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Failed to geocode');
@@ -222,26 +133,7 @@ const geocodePlaceName = async (placeName) => {
   }
 };
 
-const buildFallbackPlaces = (center, query, limit = 5) => {
-  const results = [];
-  for (let i = 0; i < limit; i += 1) {
-    const template = restaurantFallbacks[i % restaurantFallbacks.length];
-    const offset = fallbackOffsets[i % fallbackOffsets.length];
-    const lat = center.lat + offset.lat * (i + 1);
-    const lng = center.lng + offset.lng * (i + 1);
-    results.push({
-      name: `${template.name}${query ? ` · ${query.split(' ')[0]}` : ''}`,
-      address: `${(lat).toFixed(4)}, ${(lng).toFixed(4)} • ${template.description}`,
-      lat,
-      lng,
-      distanceMiles: Number(calculateDistanceMiles(center, { lat, lng }).toFixed(1)),
-      score: Number((4.1 + (i * 0.1)).toFixed(1))
-    });
-  }
-  return results;
-};
-
-const fetchNearbyPlaces = async (center, query, limit = 5, allowFallback = true) => {
+const fetchNearbyPlaces = async (center, query, limit = 5) => {
   if (!center) return [];
   const delta = 0.02;
   const viewbox = [
@@ -254,7 +146,7 @@ const fetchNearbyPlaces = async (center, query, limit = 5, allowFallback = true)
   try {
     const url = `https://nominatim.openstreetmap.org/search?format=json&limit=${limit}&q=${encodeURIComponent(
       query
-    )}&bounded=1&viewbox=${viewbox}&email=support@letslink.app`;
+    )}&bounded=1&viewbox=${viewbox}`;
 
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error('Failed to fetch places');
@@ -270,14 +162,11 @@ const fetchNearbyPlaces = async (center, query, limit = 5, allowFallback = true)
         lat,
         lng,
         distanceMiles: Number(calculateDistanceMiles(center, { lat, lng }).toFixed(1)),
-        score: place.importance ? Number((3.5 + place.importance).toFixed(1)) : undefined
+        source: 'OpenStreetMap'
       };
     });
   } catch (error) {
-    if (allowFallback) {
-      return buildFallbackPlaces(center, query, limit);
-    }
-    throw error;
+    return [];
   }
 };
 
@@ -294,12 +183,12 @@ const partyTypeEmojis = {
 // Main App Component
 export default function LetsLinkApp() {
   // Auth state
-  const [currentUser, setCurrentUser] = usePersistedState('currentUser', null);
-  const [users, setUsers] = usePersistedState('users', []);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
   
   // App state
-  const [parties, setParties] = usePersistedState('parties', []);
-  const [partyMembers, setPartyMembers] = usePersistedState('partyMembers', []);
+  const [parties, setParties] = useState([]);
+  const [partyMembers, setPartyMembers] = useState([]);
   const [friends, setFriends] = usePersistedState('friends', []);
   const [photos, setPhotos] = usePersistedState('photos', []);
   const [notifications, setNotifications] = usePersistedState('notifications', []);
@@ -313,6 +202,23 @@ export default function LetsLinkApp() {
   const [selectedParty, setSelectedParty] = useState(null);
   const [showCreateParty, setShowCreateParty] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [apiError, setApiError] = useState('');
+  const [authLoading, setAuthLoading] = useState(true);
+  const hydrate = useCallback(async () => {
+    const state = await request('/state');
+    setCurrentUser(state.user); setUsers(state.users); setParties(state.parties); setPartyMembers(state.partyMembers);
+    setSelectedParty(previous => state.parties.find(p => p.id === previous?.id) || null);
+    return state;
+  }, []);
+  useEffect(() => {
+    hydrate().catch(error => { if (error.status !== 401) setApiError('The server is unavailable. Start the API and reload.'); }).finally(() => setAuthLoading(false));
+  }, [hydrate]);
+  useEffect(() => {
+    if (!currentUser) return;
+    const timer = setInterval(() => hydrate().catch(() => {}), 10000);
+    return () => clearInterval(timer);
+  }, [currentUser?.id, hydrate]);
+
 
   // Computed values
   const myParties = parties.filter(p => 
@@ -328,85 +234,34 @@ export default function LetsLinkApp() {
   const unreadNotifications = notifications.filter(n => n.user_id === currentUser?.id && !n.read);
 
   // Auth functions
-  const handleAuth = (email, password, fullName, username) => {
-    if (isSignUp) {
-      const newUser = {
-        id: generateId(),
-        email,
-        full_name: fullName,
-        username: username || email.split('@')[0],
-        role: 'user',
-        bio: '',
-        location: '',
-        interests: '',
-        phone: '',
-        profile_picture_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
-      };
-      setUsers([...users, newUser]);
-      setCurrentUser(newUser);
-      setShowAuthModal(false);
-    } else {
-      const user = users.find(u => u.email === email);
-      if (user) {
-        setCurrentUser(user);
-        setShowAuthModal(false);
-      }
-    }
+  const handleAuth = async (email, password, fullName, username) => {
+    setApiError(''); setAuthLoading(true);
+    try {
+      await request(isSignUp ? '/auth/register' : '/auth/login', {body:{email,password,full_name:fullName,username}});
+      await hydrate(); setShowAuthModal(false);
+    } catch(error) { setApiError(error.message); }
+    finally { setAuthLoading(false); }
   };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
-    setCurrentView('home');
+  const handleLogout = async () => {
+    try { await request('/auth/logout',{method:'POST'}); }
+    catch(error) { setApiError(error.message); return; }
+    setCurrentUser(null); setUsers([]); setParties([]); setPartyMembers([]);
+    setFriends([]); setPhotos([]); setNotifications([]); setPolls([]); setVotes([]);
+    setSelectedParty(null); setCurrentView('home');
   };
-
-  // Party functions
-  const createParty = (partyData) => {
-    const newParty = {
-      id: generateId(),
-      ...partyData,
-      host_id: currentUser.id,
-      join_code: generateJoinCode(),
-      status: 'planning',
-      member_ids: [currentUser.id],
-      created_at: new Date().toISOString()
-    };
-    setParties([...parties, newParty]);
-    
-    const membership = {
-      id: generateId(),
-      party_id: newParty.id,
-      user_id: currentUser.id,
-      status: 'active',
-      joined_at: new Date().toISOString()
-    };
-    setPartyMembers([...partyMembers, membership]);
-    
-    setShowCreateParty(false);
-    setSelectedParty(newParty);
-    setCurrentView('party-detail');
+  const createParty = async partyData => {
+    setApiError('');
+    try {
+      const {party}=await request('/parties',{body:partyData});
+      await hydrate(); setShowCreateParty(false); setSelectedParty(party); setCurrentView('party-detail');
+    } catch(error) { setApiError(error.message); }
   };
-
-  const joinParty = (joinCode) => {
-    const party = parties.find(p => p.join_code === joinCode);
-    if (party && !party.member_ids.includes(currentUser.id)) {
-      const updatedParty = {
-        ...party,
-        member_ids: [...party.member_ids, currentUser.id]
-      };
-      setParties(parties.map(p => p.id === party.id ? updatedParty : p));
-      
-      const membership = {
-        id: generateId(),
-        party_id: party.id,
-        user_id: currentUser.id,
-        status: 'active',
-        joined_at: new Date().toISOString()
-      };
-      setPartyMembers([...partyMembers, membership]);
-      
-      setSelectedParty(updatedParty);
-      setCurrentView('party-detail');
-    }
+  const joinParty = async joinCode => {
+    setApiError('');
+    try {
+      const {party}=await request('/parties/join',{body:{code:joinCode}});
+      await hydrate(); setSelectedParty(party); setCurrentView('party-detail');
+    } catch(error) { setApiError(error.message); }
   };
 
   // Friend functions
@@ -455,10 +310,14 @@ export default function LetsLinkApp() {
             <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent mb-2">
               Let's Link
             </h1>
-            <p className="text-gray-600">Plan amazing outings with friends</p>
+            <p className="text-gray-600">Good plans start with a shared place.</p>
+            <p className="text-sm text-gray-500 mt-3">Create a party, invite your people, and find a center that brings everyone closer.</p>
           </div>
 
           <div className="bg-white rounded-2xl shadow-xl p-8">
+            {apiError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-red-700">{apiError}</p>}
+            {authLoading && <p role="status" className="mb-3 text-gray-600">Connecting…</p>}
+            <p className="text-xs text-gray-500 mb-4">Accounts and parties are saved on the server. New accounts require a password of at least 12 characters.</p>
             <div className="flex gap-2 mb-6">
               <button
                 onClick={() => setIsSignUp(false)}
@@ -482,7 +341,7 @@ export default function LetsLinkApp() {
               </button>
             </div>
 
-            <div
+            <form
               onSubmit={(e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
@@ -500,14 +359,14 @@ export default function LetsLinkApp() {
                   <input
                     name="fullName"
                     type="text"
-                    placeholder="Full Name"
+                    aria-label="Full Name" placeholder="Full Name"
                     required
                     className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                   <input
                     name="username"
                     type="text"
-                    placeholder="Username"
+                    aria-label="Username" placeholder="Username"
                     required
                     className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
@@ -516,33 +375,26 @@ export default function LetsLinkApp() {
               <input
                 name="email"
                 type="email"
-                placeholder="Email"
+                aria-label="Email" placeholder="Email"
                 required
                 className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
               <input
                 name="password"
+                minLength={isSignUp ? 12 : 1}
+                maxLength={128}
+                autoComplete={isSignUp ? "new-password" : "current-password"}
                 type="password"
-                placeholder="Password"
+                aria-label="Password" placeholder="Password"
                 required
                 className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
               />
-              <button
-                type="button"
-                onClick={(e) => {
-                  const form = e.target.closest('div');
-                  const inputs = form.querySelectorAll('input');
-                  const data = {};
-                  inputs.forEach(input => {
-                    data[input.name] = input.value;
-                  });
-                  handleAuth(data.email, data.password, data.fullName, data.username);
-                }}
+              <button type="submit" disabled={authLoading}
                 className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all"
               >
                 {isSignUp ? 'Create Account' : 'Sign In'}
               </button>
-            </div>
+            </form>
           </div>
         </div>
       </div>
@@ -552,12 +404,15 @@ export default function LetsLinkApp() {
   // Main app layout
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50">
+      <div className="mx-auto max-w-7xl px-4 pt-3 text-xs text-gray-600">Accounts, invitations and party locations sync with the server. Photos, polls and friend drafts are local to this browser.</div>
+      {apiError && <div role="alert" className="m-4 rounded-xl bg-red-50 p-4 text-red-700">{apiError}</div>}
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
               className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Toggle navigation" aria-expanded={isMobileMenuOpen}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             >
               <Menu className="w-6 h-6" />
@@ -574,7 +429,7 @@ export default function LetsLinkApp() {
 
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setCurrentView('notifications')}
+              aria-label="Notifications" onClick={() => setCurrentView('notifications')}
               className="relative p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <Bell className="w-5 h-5" />
@@ -593,7 +448,7 @@ export default function LetsLinkApp() {
               <span className="hidden sm:block font-medium">{currentUser.username}</span>
             </div>
             <button
-              onClick={handleLogout}
+              aria-label="Sign out" onClick={handleLogout}
               className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
             >
               <LogOut className="w-5 h-5" />
@@ -605,7 +460,7 @@ export default function LetsLinkApp() {
       <div className="flex max-w-7xl mx-auto">
         {/* Sidebar - Desktop & Mobile Overlay */}
         <aside className={`
-          fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white lg:bg-transparent
+          fixed lg:sticky lg:top-[88px] lg:self-start inset-y-0 lg:inset-y-auto left-0 z-50 w-64 bg-white lg:bg-transparent
           transform transition-transform duration-300 ease-in-out
           ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
           lg:block p-4 shadow-xl lg:shadow-none
@@ -718,9 +573,8 @@ export default function LetsLinkApp() {
               votes={votes}
               onBack={() => setCurrentView('parties')}
               onUpdateParty={(updates) => {
-                const updated = { ...selectedParty, ...updates };
-                setParties(parties.map(p => p.id === selectedParty.id ? updated : p));
-                setSelectedParty(updated);
+                request(`/parties/${selectedParty.id}`, {method:'PATCH',body:updates})
+                  .then(hydrate).catch(error => setApiError(error.message));
               }}
               onUploadPhoto={(photoData) => {
                 const newPhoto = {
@@ -760,17 +614,9 @@ export default function LetsLinkApp() {
                   }]);
                 }
               }}
-              onUpdateLocation={(lat, lng, name) => {
-                const membership = partyMembers.find(
-                  m => m.party_id === selectedParty.id && m.user_id === currentUser.id
-                );
-                if (membership) {
-                  setPartyMembers(partyMembers.map(m =>
-                    m.id === membership.id
-                      ? { ...m, location_lat: lat, location_lng: lng, location_name: name }
-                      : m
-                  ));
-                }
+              onUpdateLocation={async (lat,lng,name) => {
+                try { await request(`/parties/${selectedParty.id}/location`,{method:'PATCH',body:{lat,lng,name}}); await hydrate(); }
+                catch(error) { setApiError(error.message); }
               }}
             />
           )}
@@ -803,9 +649,7 @@ export default function LetsLinkApp() {
             <ProfileView
               user={currentUser}
               onUpdateProfile={(updates) => {
-                const updated = { ...currentUser, ...updates };
-                setCurrentUser(updated);
-                setUsers(users.map(u => u.id === currentUser.id ? updated : u));
+                request('/users/me', {method:'PATCH',body:updates}).then(() => hydrate()).catch(error => setApiError(error.message));
               }}
             />
           )}
@@ -901,48 +745,66 @@ function HomeView({ currentUser, parties, friends, onCreateParty, onViewParties,
     .filter(p => p.status !== 'cancelled' && new Date(p.scheduled_date) >= new Date())
     .sort((a, b) => new Date(a.scheduled_date) - new Date(b.scheduled_date))
     .slice(0, 3);
+  const nextParty = upcomingParties[0];
+  const activePartyCount = parties.filter(p => p.status !== 'cancelled').length;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold text-gray-900">Welcome back, {currentUser.username}!</h2>
-          <p className="text-gray-600 mt-1">Ready to plan your next adventure?</p>
+    <div className="space-y-8 home-dashboard">
+      <section className="planning-hero">
+        <div className="planning-hero-copy">
+          <p className="planning-eyebrow">YOUR PEOPLE / ONE PLAN</p>
+          <h2>Make “we should hang out” <span>actually happen.</span></h2>
+          <p>Welcome back, {currentUser.username}. Start the plan, invite your people, and find a fair place to meet.</p>
         </div>
         <button
           onClick={onCreateParty}
-          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl font-medium hover:from-purple-600 hover:to-pink-600 transition-all shadow-lg"
+          className="planning-primary-action"
         >
           <Plus className="w-5 h-5" />
-          <span className="hidden sm:inline">Create Party</span>
+          <span>Start a plan</span>
         </button>
-      </div>
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <StatCard
-          icon={Calendar}
-          label="Active Parties"
-          value={parties.filter(p => p.status !== 'cancelled').length}
-          gradient="from-purple-500 to-purple-600"
-        />
-        <StatCard
-          icon={Users}
-          label="Friends"
-          value={friends.length}
-          gradient="from-pink-500 to-pink-600"
-        />
-        <StatCard
-          icon={Camera}
-          label="Memories"
-          value={0}
-          gradient="from-blue-500 to-blue-600"
-        />
-      </div>
+      </section>
+
+      {nextParty ? (
+        <section className="planning-pulse">
+          <div className="next-plan-card">
+            <div className="pulse-label"><span className="pulse-dot" /> NEXT UP</div>
+            <div className="next-plan-main">
+              <div className="next-plan-emoji" aria-hidden="true">{partyTypeEmojis[nextParty.type]}</div>
+              <div>
+                <p className="next-plan-date">{formatDate(nextParty.scheduled_date)}</p>
+                <h3>{nextParty.title}</h3>
+                <p>{nextParty.description || 'The plan is open. Bring your people in and choose the details together.'}</p>
+              </div>
+            </div>
+            <div className="next-plan-footer">
+              <span><Users className="w-4 h-4" /> {nextParty.member_ids.length}/{nextParty.max_size} linked</span>
+              <span className="plan-status">{nextParty.status}</span>
+              <button onClick={() => onViewParty(nextParty)}>Continue planning <ChevronRight className="w-4 h-4" /></button>
+            </div>
+          </div>
+          <aside className="planning-stats" aria-label="Planning overview">
+            <div><span>Active plans</span><strong>{activePartyCount}</strong></div>
+            <div><span>Coming up</span><strong>{upcomingParties.length}</strong></div>
+            <div><span>Your circle</span><strong>{friends.length}</strong></div>
+          </aside>
+        </section>
+      ) : (
+        <section className="first-plan-card">
+          <div><p className="planning-eyebrow">YOUR FIRST LINK</p><h3>A group plan in three clean moves.</h3></div>
+          <ol>
+            <li><span>01</span><div><strong>Name the moment</strong><p>Create an outing and pick a date.</p></div></li>
+            <li><span>02</span><div><strong>Bring the group</strong><p>Share one private invitation code.</p></div></li>
+            <li><span>03</span><div><strong>Meet in the middle</strong><p>Use locations people choose to share.</p></div></li>
+          </ol>
+          <button onClick={onCreateParty}>Create your first plan <ChevronRight className="w-4 h-4" /></button>
+        </section>
+      )}
 
       {/* Upcoming Parties */}
-      <div>
+      {upcomingParties.length > 0 && <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-bold text-gray-900">Upcoming Parties</h3>
+          <div><p className="planning-eyebrow">THE CALENDAR</p><h3 className="text-xl font-bold text-gray-900">Plans in motion</h3></div>
           <button
             onClick={onViewParties}
             className="text-purple-600 hover:text-purple-700 font-medium flex items-center gap-1"
@@ -952,39 +814,12 @@ function HomeView({ currentUser, parties, friends, onCreateParty, onViewParties,
           </button>
         </div>
 
-        {upcomingParties.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {upcomingParties.map(party => (
-              <PartyCard key={party.id} party={party} onClick={() => onViewParty(party)} />
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12 bg-white rounded-2xl border-2 border-dashed border-gray-200">
-            <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-600 mb-4">No upcoming parties</p>
-            <button
-              onClick={onCreateParty}
-              className="px-6 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium hover:from-purple-600 hover:to-pink-600 transition-all"
-            >
-              Create Your First Party
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function StatCard({ icon: Icon, label, value, gradient }) {
-  return (
-    <div className={`bg-gradient-to-br ${gradient} rounded-2xl p-6 text-white shadow-lg`}>
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-white/80 text-sm mb-1">{label}</p>
-          <p className="text-3xl font-bold">{value}</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {upcomingParties.map(party => (
+            <PartyCard key={party.id} party={party} onClick={() => onViewParty(party)} />
+          ))}
         </div>
-        <Icon className="w-10 h-10 opacity-80" />
-      </div>
+      </div>}
     </div>
   );
 }
@@ -993,11 +828,11 @@ function PartyCard({ party, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="bg-white rounded-2xl p-6 shadow-md hover:shadow-xl transition-all text-left w-full border border-gray-100"
+      className="party-card text-left w-full"
     >
       <div className="flex items-start justify-between mb-4">
         <div className="text-3xl">{partyTypeEmojis[party.type]}</div>
-        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+        <span className={`px-3 py-1 rounded-full text-xs font-medium capitalize ${
           party.status === 'planning' ? 'bg-yellow-100 text-yellow-700' :
           party.status === 'confirmed' ? 'bg-green-100 text-green-700' :
           'bg-gray-100 text-gray-700'
@@ -1076,11 +911,11 @@ function PartiesView({ parties, currentUser, onCreateParty, onViewParty, onJoinP
       )}
 
       {showJoinModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" aria-labelledby="join-party-title">
           <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold">Join Party</h3>
-              <button onClick={() => setShowJoinModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
+              <h3 className="text-xl font-bold" id="join-party-title">Join Party</h3>
+              <button aria-label="Close join party dialog" onClick={() => setShowJoinModal(false)} className="p-2 hover:bg-gray-100 rounded-lg">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1088,7 +923,7 @@ function PartiesView({ parties, currentUser, onCreateParty, onViewParty, onJoinP
               type="text"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              placeholder="Enter join code"
+              aria-label="Enter join code" placeholder="Enter join code"
               className="w-full px-4 py-3 border border-gray-200 rounded-lg mb-4"
             />
             <button
@@ -1097,6 +932,7 @@ function PartiesView({ parties, currentUser, onCreateParty, onViewParty, onJoinP
                 setShowJoinModal(false);
                 setJoinCode('');
               }}
+              disabled={!joinCode.trim()}
               className="w-full py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg font-medium"
             >
               Join
@@ -1127,6 +963,7 @@ function PartyDetailView({
   const [showShareMenu, setShowShareMenu] = useState(false);
   const [showLocationShare, setShowLocationShare] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState([]);
 
@@ -1134,18 +971,29 @@ function PartyDetailView({
   const members = partyMembers.map(m => users.find(u => u.id === m.user_id)).filter(Boolean);
   const memberLocations = partyMembers.filter(m => m.location_lat && m.location_lng);
 
-  const shareJoinCode = () => {
-    navigator.clipboard.writeText(party.join_code);
-    alert('Join code copied!');
+  const shareJoinCode = async () => {
+    try {
+      await navigator.clipboard.writeText(party.join_code);
+      setActionMessage('Join code copied.');
+      setShowShareMenu(false);
+    } catch {
+      setActionMessage('Could not copy the code. Select it and copy manually.');
+    }
   };
 
-  const shareLink = () => {
+  const shareLink = async () => {
     const link = `${window.location.origin}?join=${party.join_code}`;
-    if (navigator.share) {
-      navigator.share({ title: party.title, url: link });
-    } else {
-      navigator.clipboard.writeText(link);
-      alert('Link copied!');
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: party.title, url: link });
+        setActionMessage('Invitation shared.');
+      } else {
+        await navigator.clipboard.writeText(link);
+        setActionMessage('Invitation link copied.');
+      }
+      setShowShareMenu(false);
+    } catch (error) {
+      if (error?.name !== 'AbortError') setActionMessage('Could not share the invitation. Try copying the join code.');
     }
   };
 
@@ -1164,7 +1012,7 @@ function PartyDetailView({
           'Current Location'
         );
         setShowLocationShare(false);
-        alert('Location shared successfully!');
+        setActionMessage('Your location was shared with this party.');
       },
       (error) => {
         let message = 'Unable to retrieve location. ';
@@ -1185,8 +1033,8 @@ function PartyDetailView({
     try {
       const suggestions = await generateAISuggestions(party.type, memberLocations);
       setAiSuggestions(suggestions);
-    } catch (error) {
-      alert('Failed to generate suggestions');
+    } catch {
+      setActionMessage('Suggestions are unavailable right now. Your party details are still saved.');
     }
     setIsLoadingSuggestions(false);
   };
@@ -1202,20 +1050,20 @@ function PartyDetailView({
           <ChevronRight className="w-6 h-6 rotate-180" />
         </button>
         <div className="flex gap-2">
-          {isHost && (
-            <button className="p-2 hover:bg-white rounded-lg transition-colors">
-              <Settings className="w-5 h-5" />
+          <div className="relative">
+            <button
+              aria-label="Share party invitation"
+              aria-expanded={showShareMenu}
+              onClick={() => setShowShareMenu(!showShareMenu)}
+              className="p-2 hover:bg-white rounded-lg transition-colors"
+            >
+              <Share2 className="w-5 h-5" />
             </button>
-          )}
-          <button
-            onClick={() => setShowShareMenu(!showShareMenu)}
-            className="p-2 hover:bg-white rounded-lg transition-colors relative"
-          >
-            <Share2 className="w-5 h-5" />
             {showShareMenu && (
-              <div className="absolute right-0 top-full mt-2 bg-white rounded-xl shadow-xl p-2 w-48 z-10">
+              <div className="absolute right-0 top-full mt-2 bg-white rounded-xl shadow-xl p-2 w-48 z-10" role="menu">
                 <button
                   onClick={shareJoinCode}
+                  role="menuitem"
                   className="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-lg flex items-center gap-2"
                 >
                   <Copy className="w-4 h-4" />
@@ -1223,6 +1071,7 @@ function PartyDetailView({
                 </button>
                 <button
                   onClick={shareLink}
+                  role="menuitem"
                   className="w-full text-left px-4 py-2 hover:bg-gray-100 rounded-lg flex items-center gap-2"
                 >
                   <Share2 className="w-4 h-4" />
@@ -1230,9 +1079,11 @@ function PartyDetailView({
                 </button>
               </div>
             )}
-          </button>
+          </div>
         </div>
       </div>
+
+      {actionMessage && <div className="action-message" role="status">{actionMessage}<button aria-label="Dismiss message" onClick={() => setActionMessage('')}><X className="w-4 h-4" /></button></div>}
 
       {/* Party Info Card */}
       <div className="bg-white rounded-2xl p-6 shadow-lg">
@@ -1268,7 +1119,7 @@ function PartyDetailView({
               {!party.location_name && (
                 <div className="flex items-center gap-2 text-purple-600 col-span-2">
                   <Navigation className="w-5 h-5" />
-                  <span className="text-sm">Location to be determined by AI suggestions</span>
+                  <span className="text-sm">Meeting place not selected yet</span>
                 </div>
               )}
             </div>
@@ -1432,8 +1283,8 @@ function LocationTab({
       : shareCount < totalMembers
       ? 'More shared locations unlock better suggestions.'
       : 'All locations shared! Generate suggestions below.';
-  const embedUrl = `https://maps.google.com/maps?q=${midpoint?.lat || 37.7749},${midpoint?.lng || -122.4194}&z=12&output=embed`;
-  const openMapUrl = `https://www.google.com/maps?q=${midpoint?.lat || 0},${midpoint?.lng || 0}`;
+  const embedUrl = `https://maps.google.com/maps?q=${midpoint?.lat ?? 0},${midpoint?.lng ?? 0}&z=12&output=embed`;
+  const openMapUrl = `https://www.google.com/maps?q=${midpoint?.lat ?? 0},${midpoint?.lng ?? 0}`;
   const [geminiPrompt, setGeminiPrompt] = useState('');
   const [geminiResponse, setGeminiResponse] = useState('');
   const [geminiError, setGeminiError] = useState('');
@@ -1448,17 +1299,7 @@ function LocationTab({
     setGeminiError('');
     setGeminiResponse('');
     try {
-      const response = await fetch('/api/gemini', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ prompt: geminiPrompt.trim() })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data?.error || 'Gemini failed to respond.');
-      }
+      const data = await request('/venues/recommend', {body:{party_id:party.id,preferences:geminiPrompt.trim()}});
       setGeminiResponse(data?.text || 'No response from Gemini.');
     } catch (err) {
       setGeminiError(err.message || 'Unexpected error contacting Gemini.');
@@ -1488,11 +1329,12 @@ function LocationTab({
           <div>
             <h4 className="font-semibold text-lg text-gray-900">Need a fresh idea?</h4>
             <p className="text-sm text-gray-500">
-              Ask Gemini to brainstorm venues, timelines, or activity ideas.
+              Brainstorm around shared locations. Suggested venues and availability need independent verification.
             </p>
           </div>
         </div>
         <textarea
+          aria-label="Venue preferences" maxLength={1000}
           value={geminiPrompt}
           onChange={(e) => setGeminiPrompt(e.target.value)}
           placeholder="e.g., Suggest a rooftop venue near downtown for 10 people"
@@ -1616,7 +1458,7 @@ function LocationTab({
           <div className="bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-6 text-white">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h4 className="font-bold text-lg mb-1">?? AI Location Suggestions</h4>
+                <h4 className="font-bold text-lg mb-1">Nearby venue listings</h4>
                 <p className="text-sm text-purple-100">
                   Based on your {party.type.replace('_', ' ')} party type and member locations
                 </p>
@@ -2140,12 +1982,7 @@ function FoodFinderTab({ partyLocation, memberLocations }) {
             <div key={idx} className="p-4 bg-white border border-gray-200 rounded-xl hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-2">
                 <h4 className="font-semibold text-lg">{restaurant.name}</h4>
-                <div className="flex items-center gap-1 text-yellow-500">
-                  <span className="text-sm font-medium">
-                    {(restaurant.rating ?? 4.2).toFixed(1)}
-                  </span>
-                  <span>★</span>
-                </div>
+                <span className="text-xs text-gray-500">OpenStreetMap listing</span>
               </div>
               <p className="text-sm text-gray-600 mb-2">{restaurant.cuisine}</p>
               <p className="text-sm text-gray-500">{restaurant.address}</p>
@@ -2755,6 +2592,8 @@ function CreatePartyModal({ onClose, onCreate }) {
     </div>
   );
 }
+
+
 
 
 

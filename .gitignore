@@ -10,3 +10,9 @@ lets-link-app/node_modules/
 lets-link-app/dist/
 dist/
 .vscode/
+data/
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
